@@ -25,7 +25,7 @@ from random import random
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from os import path
-
+import math
 
 class Simulator:
     def __init__(self, scenario, tau, displayOn=False, output_img_dir=""):
@@ -49,6 +49,7 @@ class Simulator:
         # world parameters
         self.xy_size = 50
         self.lethal_radius = 10
+        self.scene = scenario
 
         # agent counts in each category
         self.num_sensors = 2
@@ -203,16 +204,32 @@ class Simulator:
         plt.close(fig)
 
 
+    def simSensor(self, unk_id, falseNegativeRate, falsePositiveRate):
+
+        x = random()
+        if self.unknown_ground_truth[unk_id] == "combatant":
+            if x > falseNegativeRate:
+                return 1
+            else:
+                return 0
+        else:
+            if x > falsePositiveRate:
+                return 0
+            else:
+                return 1
+
     def updateSensorLocations(self):
         """
         Fill in with algorithm from problem 3c or 3d
+        This function controls how sensor robots move
         :return:
         """
         # TODO YOUR CODE HERE
 
-    def updateLethalLocations(self):
+    def updateLethalLocations(self):  # How lethal robots move
         """
         Fill in with the algorithm from problem 3c or 3d
+        This function controls how lethal robots move
         :return:
         """
         # TODO YOUR CODE HERE
@@ -257,6 +274,26 @@ class Simulator:
                     self.unknown_loc[i] += np.sign(self.unknown_goal[i] - self.unknown_loc[i])
 
 
+    def calcEuclideanDistanceSensors(self):
+        """
+        Calculates the euclidean distance between sensors and unknowns
+        :return:
+        """
+        sensor_target_distances = np.zeros((self.num_sensors, self.num_unknown))
+        for sen_id in range(self.num_sensors):
+            sensor_x = self.sensor_loc[sen_id, 0]
+            sensor_y = self.sensor_loc[sen_id, 1]
+
+            for targ_id in range(self.num_unknown):
+                target_x = self.unknown_loc[targ_id, 0]
+                target_y = self.unknown_loc[targ_id, 1]
+                x_dist = sensor_x - target_x
+                y_dist = sensor_y - target_y
+                eucl_dist = math.sqrt(x_dist**2 + y_dist**2)
+                sensor_target_distances[sen_id, targ_id] = eucl_dist
+
+        return sensor_target_distances
+
     def updateCombatantEstimate(self):
         """
         # Fill in with the model from problem 3a
@@ -264,6 +301,51 @@ class Simulator:
         Use the self.simSensor() function to generate positive and negative measurements
         """
         # TODO YOUR CODE HERE
+        distances = self.calcEuclideanDistanceSensors()
+
+        # Probability of a combatant existing based on scenarios
+        if self.scene == 1:
+            p_combatant = 0.1
+        elif self.scene == 2:
+            p_combatant = 0.2
+        else:
+            p_combatant = 0.99
+
+        false_pos = 0.01
+        false_neg = 0.01
+        for unk_id in range(self.num_unknown):
+            p_current = self.unknown_estimates[unk_id]
+            measurement = self.simSensor(unk_id, false_pos, false_neg)
+            if measurement == 0:
+                pz = ((false_pos*p_current)+((1-false_pos)*p_current)/(1-p_combatant))
+            else:
+                pz = ((false_neg*p_current)+((1-false_neg)*p_current)/p_combatant)
+
+            dist = np.min(distances[:, unk_id])  # Uses the shortest distance (most confident reading)
+            p_sensor = 1-math.exp(-dist/10.0)  # Put in function based on distances
+            self.unknown_estimates[unk_id] = p_sensor*p_current/pz
+
+
+    def calcEuclideanDistanceLethal(self):
+        """
+        Calculates the euclidean distance between sensors and unknowns
+        :return:
+        """
+        lethal_target_distances = np.zeros((self.num_sensors, self.num_unknown))
+        for leth_id in range(self.num_sensors):
+            sensor_x = self.lethal_loc[leth_id, 0]
+            sensor_y = self.lethal_loc[leth_id, 1]
+
+            for targ_id in range(self.num_unknown):
+                target_x = self.unknown_loc[targ_id, 0]
+                target_y = self.unknown_loc[targ_id, 1]
+                x_dist = sensor_x - target_x
+                y_dist = sensor_y - target_y
+                eucl_dist = math.sqrt(x_dist**2 + y_dist**2)
+                lethal_target_distances[leth_id, targ_id] = eucl_dist
+
+        return lethal_target_distances
+
 
     def updateLethalActions(self):
         """
@@ -280,6 +362,14 @@ class Simulator:
         # Below determine if combatants are disabled by our lethal assets
         # Fill in with behaviorist architecture from problem 1
         # TODO YOUR CODE HERE
+        distances = self.calcEuclideanDistanceLethal()
+
+        for leth_id in range(self.num_lethal):
+            for unk_id in range(self.num_unknown):
+                if distances[leth_id, unk_id] <= self.lethal_radius and self.unknown_estimates[unk_id] > self.tau:
+                    # Give em the stabbo
+                    self.unknown_alive[unk_id] = False
+
 
 
 if __name__ == '__main__':
