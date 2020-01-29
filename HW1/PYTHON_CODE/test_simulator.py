@@ -21,6 +21,6 @@ print("\tAverage warfighters killed: {}/{}".format(np.average(data[:, 1]), np.av
 print("\tAverage civ killed: {}/{}".format(np.average(data[:, 2]), np.average(data[:, 5])))
 
 print("Running for visualization...")
-sim = Simulator(3, 0.99, displayOn=True, output_img_dir='imgs')
+sim = Simulator(3, 0.7, displayOn=True, output_img_dir='imgs')
 _ = sim.run()
 print("Done.")

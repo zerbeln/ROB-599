@@ -225,6 +225,30 @@ class Simulator:
         :return:
         """
         # TODO YOUR CODE HERE
+        distances = np.zeros(self.num_unknown)
+        for sens_id in range(self.num_sensors):
+            x_sens = self.sensor_loc[sens_id, 0]
+            y_sens = self.sensor_loc[sens_id, 1]
+            for unk_id in range(self.num_unknown):
+                if self.unknown_alive[unk_id]:
+                    x_unk = self.unknown_loc[unk_id, 0]
+                    y_unk = self.unknown_loc[unk_id, 1]
+                    x_dist = x_unk - x_sens
+                    y_dist = y_unk - y_sens
+                    distances[unk_id] = math.sqrt(x_dist**2 + y_dist**2)
+                    if distances[unk_id] == 0.0:
+                        distances[unk_id] = 0.5
+                else:
+                    distances[unk_id] = -1.0
+
+            max_id = np.argmax(distances)
+            if self.unknown_alive[max_id]:
+                x_targ = self.unknown_loc[max_id, 0]
+                y_targ = self.unknown_loc[max_id, 1]
+                dx = (x_targ - x_sens)/np.max(distances)
+                dy = (y_targ - y_sens)/np.max(distances)
+                self.sensor_loc[sens_id, 0] += dx
+                self.sensor_loc[sens_id, 1] += dy
 
     def updateLethalLocations(self):  # How lethal robots move
         """
@@ -233,6 +257,31 @@ class Simulator:
         :return:
         """
         # TODO YOUR CODE HERE
+        distances = np.zeros(self.num_unknown)
+        for leth_id in range(self.num_lethal):
+            x_leth = self.lethal_loc[leth_id, 0]
+            y_leth = self.lethal_loc[leth_id, 1]
+            for unk_id in range(self.num_unknown):
+                if self.unknown_alive[unk_id] and self.unknown_estimates[unk_id] > self.tau:
+                    x_unk = self.unknown_loc[unk_id, 0]
+                    y_unk = self.unknown_loc[unk_id, 1]
+                    x_dist = x_unk - x_leth
+                    y_dist = y_unk - y_leth
+                    distances[unk_id] = math.sqrt(x_dist**2 + y_dist**2)
+                    if distances[unk_id] == 0.0:
+                        distances[unk_id] = 0.5
+                else:
+                    distances[unk_id] = 1000.00
+
+            min_id = np.argmin(distances)
+            if self.unknown_estimates[min_id] > self.tau:
+                x_targ = self.unknown_loc[min_id, 0]
+                y_targ = self.unknown_loc[min_id, 1]
+                dx = (x_targ - x_leth)/np.min(distances)
+                dy = (y_targ - y_leth)/np.min(distances)
+                self.lethal_loc[leth_id, 0] += dx
+                self.lethal_loc[leth_id, 1] += dy
+
 
     def updateHumanLocations(self):
         """
@@ -287,8 +336,8 @@ class Simulator:
             for targ_id in range(self.num_unknown):
                 target_x = self.unknown_loc[targ_id, 0]
                 target_y = self.unknown_loc[targ_id, 1]
-                x_dist = sensor_x - target_x
-                y_dist = sensor_y - target_y
+                x_dist = target_x - sensor_x
+                y_dist = target_y - sensor_y
                 eucl_dist = math.sqrt(x_dist**2 + y_dist**2)
                 sensor_target_distances[sen_id, targ_id] = eucl_dist
 
@@ -307,23 +356,22 @@ class Simulator:
         if self.scene == 1:
             p_combatant = 0.1
         elif self.scene == 2:
-            p_combatant = 0.2
+            p_combatant = 0.3
         else:
-            p_combatant = 0.99
+            p_combatant = 0.8
 
-        false_pos = 0.01
-        false_neg = 0.01
+        prob_false_pos = 0.99  # Fixed rate for sensor misidentifying civilians
         for unk_id in range(self.num_unknown):
-            p_current = self.unknown_estimates[unk_id]
-            measurement = self.simSensor(unk_id, false_pos, false_neg)
-            if measurement == 0:
-                pz = ((false_pos*p_current)+((1-false_pos)*p_current)/(1-p_combatant))
-            else:
-                pz = ((false_neg*p_current)+((1-false_neg)*p_current)/p_combatant)
-
             dist = np.min(distances[:, unk_id])  # Uses the shortest distance (most confident reading)
-            p_sensor = 1-math.exp(-dist/10.0)  # Put in function based on distances
-            self.unknown_estimates[unk_id] = p_sensor*p_current/pz
+            prob_false_neg = 1 - math.exp(-dist / 10.0)  # Distance based false negative rate
+            p_current = self.unknown_estimates[unk_id]
+            measurement = self.simSensor(unk_id, prob_false_neg, prob_false_pos)
+            if measurement == 0:  # Unknown identified as civilian
+                pz = ((prob_false_pos*p_current)+((1-prob_false_pos)*p_current))/(1-p_combatant)
+            else:  # Unknown identified as hostile
+                pz = ((prob_false_neg*p_current)+((1-prob_false_neg)*p_current))/(p_combatant)
+
+            self.unknown_estimates[unk_id] = prob_false_neg*p_current/pz
 
 
     def calcEuclideanDistanceLethal(self):
@@ -339,8 +387,8 @@ class Simulator:
             for targ_id in range(self.num_unknown):
                 target_x = self.unknown_loc[targ_id, 0]
                 target_y = self.unknown_loc[targ_id, 1]
-                x_dist = sensor_x - target_x
-                y_dist = sensor_y - target_y
+                x_dist = target_x - sensor_x
+                y_dist = target_y - sensor_y
                 eucl_dist = math.sqrt(x_dist**2 + y_dist**2)
                 lethal_target_distances[leth_id, targ_id] = eucl_dist
 
