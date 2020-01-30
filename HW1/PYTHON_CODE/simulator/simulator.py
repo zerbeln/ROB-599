@@ -57,6 +57,10 @@ class Simulator:
         self.num_humans = 4
         self.num_unknown = 4
 
+        # User defined agent parameters:
+        self.sensor_max_step_size = 1.5
+        self.lethal_max_step_size = 1.5
+
         # starting locations
         self.sensor_loc = np.random.randint(0, self.xy_size, [self.num_sensors, 2])
         self.lethal_loc = np.random.randint(0, self.xy_size, [self.num_lethal, 2])
@@ -134,6 +138,8 @@ class Simulator:
             if self.displayOn:
                 self.render_world(t, self.output_img_dir)
 
+        print(self.unknown_estimates)
+
         # Calculate final statistics for the simulation
         num_combatants_killed = 0
         num_civilians_killed = 0
@@ -208,15 +214,51 @@ class Simulator:
 
         x = random()
         if self.unknown_ground_truth[unk_id] == "combatant":
-            if x > falseNegativeRate:
+            if x > falseNegativeRate:  # Probability that a combatant is identified as a civ
                 return 1
             else:
                 return 0
         else:
-            if x > falsePositiveRate:
+            if x > falsePositiveRate:  # Probability that a civ is identified as a combatant
                 return 0
             else:
                 return 1
+
+    def sensorGreedyMove(self):
+        """
+        Sensor platforms move greedily towards the closest target with uncertainty below threshold
+        :return:
+        """
+        distances = np.zeros(self.num_unknown)
+        for sens_id in range(self.num_sensors):
+            x_sens = self.sensor_loc[sens_id, 0]
+            y_sens = self.sensor_loc[sens_id, 1]
+            for unk_id in range(self.num_unknown):
+                if self.unknown_alive[unk_id] and self.unknown_estimates[unk_id] <= self.tau:
+                    x_unk = self.unknown_loc[unk_id, 0]
+                    y_unk = self.unknown_loc[unk_id, 1]
+                    x_dist = x_unk - x_sens
+                    y_dist = y_unk - y_sens
+                    distances[unk_id] = math.sqrt(x_dist ** 2 + y_dist ** 2)
+                    if distances[unk_id] == 0.0:
+                        distances[unk_id] = 0.5
+                else:
+                    distances[unk_id] = -1.0
+
+            max_id = np.argmax(distances)
+            if self.unknown_alive[max_id] and self.unknown_estimates[max_id] <= self.tau:
+                x_targ = self.unknown_loc[max_id, 0]
+                y_targ = self.unknown_loc[max_id, 1]
+                dx = ((x_targ - x_sens) / distances[max_id])*self.sensor_max_step_size
+                dy = ((y_targ - y_sens) / distances[max_id])*self.sensor_max_step_size
+                self.sensor_loc[sens_id, 0] += dx
+                self.sensor_loc[sens_id, 1] += dy
+
+    def sensorPolicyMove(self):
+        """
+        Sensor platforms move according to policy
+        :return:
+        """
 
     def updateSensorLocations(self):
         """
@@ -224,39 +266,15 @@ class Simulator:
         This function controls how sensor robots move
         :return:
         """
-        # TODO YOUR CODE HERE
-        distances = np.zeros(self.num_unknown)
-        for sens_id in range(self.num_sensors):
-            x_sens = self.sensor_loc[sens_id, 0]
-            y_sens = self.sensor_loc[sens_id, 1]
-            for unk_id in range(self.num_unknown):
-                if self.unknown_alive[unk_id]:
-                    x_unk = self.unknown_loc[unk_id, 0]
-                    y_unk = self.unknown_loc[unk_id, 1]
-                    x_dist = x_unk - x_sens
-                    y_dist = y_unk - y_sens
-                    distances[unk_id] = math.sqrt(x_dist**2 + y_dist**2)
-                    if distances[unk_id] == 0.0:
-                        distances[unk_id] = 0.5
-                else:
-                    distances[unk_id] = -1.0
 
-            max_id = np.argmax(distances)
-            if self.unknown_alive[max_id]:
-                x_targ = self.unknown_loc[max_id, 0]
-                y_targ = self.unknown_loc[max_id, 1]
-                dx = (x_targ - x_sens)/np.max(distances)
-                dy = (y_targ - y_sens)/np.max(distances)
-                self.sensor_loc[sens_id, 0] += dx
-                self.sensor_loc[sens_id, 1] += dy
+        self.sensorGreedyMove()
 
-    def updateLethalLocations(self):  # How lethal robots move
+
+    def lethalGreedyMove(self):
         """
-        Fill in with the algorithm from problem 3c or 3d
-        This function controls how lethal robots move
+        Lethal platforms move greedily towards the closest target with uncertainty above threshold
         :return:
         """
-        # TODO YOUR CODE HERE
         distances = np.zeros(self.num_unknown)
         for leth_id in range(self.num_lethal):
             x_leth = self.lethal_loc[leth_id, 0]
@@ -267,20 +285,35 @@ class Simulator:
                     y_unk = self.unknown_loc[unk_id, 1]
                     x_dist = x_unk - x_leth
                     y_dist = y_unk - y_leth
-                    distances[unk_id] = math.sqrt(x_dist**2 + y_dist**2)
+                    distances[unk_id] = math.sqrt(x_dist ** 2 + y_dist ** 2)
                     if distances[unk_id] == 0.0:
                         distances[unk_id] = 0.5
                 else:
                     distances[unk_id] = 1000.00
 
             min_id = np.argmin(distances)
-            if self.unknown_estimates[min_id] > self.tau:
+            if self.unknown_estimates[min_id] > self.tau and self.unknown_alive[min_id]:
                 x_targ = self.unknown_loc[min_id, 0]
                 y_targ = self.unknown_loc[min_id, 1]
-                dx = (x_targ - x_leth)/np.min(distances)
-                dy = (y_targ - y_leth)/np.min(distances)
+                dx = ((x_targ - x_leth)/distances[min_id])*self.lethal_max_step_size
+                dy = ((y_targ - y_leth)/distances[min_id])*self.lethal_max_step_size
                 self.lethal_loc[leth_id, 0] += dx
                 self.lethal_loc[leth_id, 1] += dy
+
+    def lethalPolicyMove(self):
+        """
+        Lethal platforms move according to policy
+        :return:
+        """
+
+    def updateLethalLocations(self):  # How lethal robots move
+        """
+        Fill in with the algorithm from problem 3c or 3d
+        This function controls how lethal robots move
+        :return:
+        """
+
+        self.lethalGreedyMove()
 
 
     def updateHumanLocations(self):
@@ -349,29 +382,29 @@ class Simulator:
         # Should be different for different scenarios
         Use the self.simSensor() function to generate positive and negative measurements
         """
-        # TODO YOUR CODE HERE
         distances = self.calcEuclideanDistanceSensors()
 
         # Probability of a combatant existing based on scenarios
-        if self.scene == 1:
-            p_combatant = 0.1
-        elif self.scene == 2:
-            p_combatant = 0.3
-        else:
-            p_combatant = 0.8
+        if self.scene == 1:  # 10% are combatants
+            p_com = 0.1
+            p_civ = 0.9
+        elif self.scene == 2:  # 30% are combatants
+            p_com = 0.3
+            p_civ = 0.7
+        else:  # 80% are combatants
+            p_com = 0.8
+            p_civ = 0.2
 
-        prob_false_pos = 0.99  # Fixed rate for sensor misidentifying civilians
+        p_false_pos = 0.01  # Probability that a civ is identified as a combatant
         for unk_id in range(self.num_unknown):
             dist = np.min(distances[:, unk_id])  # Uses the shortest distance (most confident reading)
-            prob_false_neg = 1 - math.exp(-dist / 10.0)  # Distance based false negative rate
-            p_current = self.unknown_estimates[unk_id]
-            measurement = self.simSensor(unk_id, prob_false_neg, prob_false_pos)
+            p_false_neg = 1 - math.exp(-dist / 10.0)  # Probability that a combatant is identified as a civ
+            measurement = self.simSensor(unk_id, p_false_neg, p_false_pos)
+            pa = self.unknown_estimates[unk_id]
             if measurement == 0:  # Unknown identified as civilian
-                pz = ((prob_false_pos*p_current)+((1-prob_false_pos)*p_current))/(1-p_combatant)
+                self.unknown_estimates[unk_id] = (1-p_false_neg)*p_civ/((1-p_false_neg)*p_civ + p_false_neg*p_com)
             else:  # Unknown identified as hostile
-                pz = ((prob_false_neg*p_current)+((1-prob_false_neg)*p_current))/(p_combatant)
-
-            self.unknown_estimates[unk_id] = prob_false_neg*p_current/pz
+                self.unknown_estimates[unk_id] = (1-p_false_pos)*p_com/((1-p_false_pos)*p_com + p_false_pos*p_civ)
 
 
     def calcEuclideanDistanceLethal(self):
@@ -409,7 +442,7 @@ class Simulator:
 
         # Below determine if combatants are disabled by our lethal assets
         # Fill in with behaviorist architecture from problem 1
-        # TODO YOUR CODE HERE
+
         distances = self.calcEuclideanDistanceLethal()
 
         for leth_id in range(self.num_lethal):
