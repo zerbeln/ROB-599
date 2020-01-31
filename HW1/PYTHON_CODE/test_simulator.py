@@ -11,7 +11,7 @@ import numpy as np
 trials = 100
 data = np.zeros((trials, 6))
 for t in range(trials):
-    sim = Simulator(1, 0.95)
+    sim = Simulator(3, 0.8)
     combatants_killed, warfighters_killed, civ_killed, num_combatants, num_warfighters, num_civ = sim.run()
     data[t, :] = [combatants_killed, warfighters_killed, civ_killed, num_combatants, num_warfighters, num_civ]
 
@@ -21,6 +21,6 @@ print("\tAverage warfighters killed: {}/{}".format(np.average(data[:, 1]), np.av
 print("\tAverage civ killed: {}/{}".format(np.average(data[:, 2]), np.average(data[:, 5])))
 
 print("Running for visualization...")
-sim = Simulator(1, 0.95, displayOn=True, output_img_dir='imgs')
+sim = Simulator(3, 0.8, displayOn=True, output_img_dir='imgs')
 _ = sim.run()
 print("Done.")
